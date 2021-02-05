@@ -1,0 +1,59 @@
+version: 0.2
+
+env:
+  variables:
+    SUB_PATH: 1_Forecasting_Air_Pollution_with_Amazon_SageMaker_and_DeepAR
+  parameter-store:
+    ECR_REPO_NAME: /ml_pipeline/preprocessing_container_repo_name
+    WORKFLOW_EXECUTION_ROLE: /ml_pipeline/workflow_execution_role
+    WORKFLOW_NAME: /ml_pipeline/workflow_name
+    REQUIRE_HPO: /ml_pipeline/require_hpo
+    REQUIRE_MODEL_TRAINING: /ml_pipeline/require_model_training
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.7
+    commands:
+      - echo "Installing requirements"
+      - pip install -r $CODEBUILD_SRC_DIR/$SUB_PATH/pipeline/requirements.txt
+
+  pre_build:
+    commands:
+      - echo List source files
+      - echo Get pipeline name
+      - export PIPELINE_NAME=${CODEBUILD_INITIATOR#codepipeline}
+      - echo $PIPELINE_NAME
+      - echo $ECR_REPO_NAME is the target preprocessing container repo name.
+      - echo Build preprocessing docker container
+      - cd $CODEBUILD_SRC_DIR/$SUB_PATH
+      - ACCOUNT_ID="$(echo ${CODEBUILD_BUILD_ARN} | cut -d':' -f5)"
+      - echo account id - ${ACCOUNT_ID} and region - ${AWS_DEFAULT_REGION}
+      - sh ./pipeline/build_container.sh ${ACCOUNT_ID} ${AWS_DEFAULT_REGION} ${ECR_REPO_NAME}
+      - echo Setup default model artifact.
+      - python3 ./pipeline/ml_pipeline_dependencies.py
+
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo build
+      - cd $CODEBUILD_SRC_DIR/$SUB_PATH
+      - echo Create ML Pipeline
+      - ACCOUNT_ID="$(echo ${CODEBUILD_BUILD_ARN} | cut -d':' -f5)"
+      - processing_repository_uri=$(sh ./pipeline/get_processing_repo_uri.sh ${ACCOUNT_ID} ${AWS_DEFAULT_REGION} ${ECR_REPO_NAME})
+      - echo processing_repository_uri - $processing_repository_uri
+      - echo workflow execution REQUIRE_HPO - ${REQUIRE_HPO} and REQUIRE_MODEL_TRAINING - ${REQUIRE_MODEL_TRAINING}
+      - python3 ./pipeline/ml_pipeline.py --workflow-name ${WORKFLOW_NAME} --workflow-execution-role ${WORKFLOW_EXECUTION_ROLE} --processing-repository-uri ${processing_repository_uri} --require-hpo ${REQUIRE_HPO} --require-model-training ${REQUIRE_MODEL_TRAINING}
+      - echo $CODEBUILD_RESOLVED_SOURCE_VERSION > commit.txt
+      - echo $CODEBUILD_BUILD_ID >> commit.txt # Add build ID when commit doesn't change
+
+  post_build:
+    commands:
+      - echo Package custom resources
+      - echo Done
+
+artifacts:
+  files:
+    - $SUB_PATH/*.json
+    - $SUB_PATH/*.yml
+  discard-paths: yes

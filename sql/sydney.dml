@@ -1,0 +1,14 @@
+select
+    country,
+    city,
+    location,
+    parameter,
+    cast(from_iso8601_timestamp(date.utc) as timestamp) as timestamp,
+    value,
+    coordinates.latitude as point_latitude,
+    coordinates.longitude as point_longitude
+from openaq
+where 
+    country = 'AU'  
+    and parameter = 'pm10' 
+    and strpos(city, 'Sydney') != 0
